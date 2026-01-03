@@ -112,7 +112,7 @@ def main():
             
         # 3. Simulate
         print("\n--- Running Simulation ---")
-        n_people = 20000
+        n_people = 100000
         sim = Simulation(dist, tax_system, n_people)
         sim.run()
         

@@ -207,3 +207,85 @@ class Simulation:
         n = array.shape[0]
         return ((np.sum((2 * index - n - 1) * array)) / (n * np.sum(array)))
 
+
+@dataclass
+class MultiYearSimulation:
+    distribution: Distribution
+    tax_system: TaxSystem
+    n_people: int = 10000
+    n_years: int = 50
+    savings_rate: float = 0.20
+    initial_wealth_multiplier: float = 6.0
+    
+    def __post_init__(self):
+        self.annual_income = None
+        
+        # Parallel Realities (Independent Timelines)
+        self.wealth_pre = None
+        self.wealth_post = None
+        self.wealth_ubi = None
+        
+        # History tracks
+        self.history = {
+            'pre': [],
+            'post': [],
+            'ubi': []
+        }
+        # Gini histories
+        self.gini_history = {
+            'pre': [],
+            'post': [],
+            'ubi': []
+        }
+        
+    def run(self):
+        # 1. Generate constant annual income for all scenarios
+        self.annual_income = self.distribution.generate(self.n_people)
+        
+        # 2. Calculate constant annual flows for each scenario
+        # Pre-tax scenario
+        annual_income_pre = self.annual_income
+        annual_taxes_pre = np.zeros_like(self.annual_income) # No taxes in pre-tax scenario
+        annual_post_tax_pre = annual_income_pre
+        
+        # Post-tax scenario (without UBI)
+        self.annual_taxes = self.tax_system.calculate_tax(self.annual_income)
+        annual_post_tax_post = self.annual_income - self.annual_taxes
+        
+        # UBI scenario (post-tax with redistribution)
+        total_revenue_ubi = np.sum(self.annual_taxes) # UBI revenue comes from the same tax system
+        ubi_per_person = total_revenue_ubi / self.n_people
+        annual_redist_ubi = annual_post_tax_post + ubi_per_person
+        
+        # 3. Initialize Wealth for all scenarios (Year 0)
+        initial_wealth = self.annual_income * self.initial_wealth_multiplier
+        self.wealth_pre = initial_wealth.copy()
+        self.wealth_post = initial_wealth.copy()
+        self.wealth_ubi = initial_wealth.copy()
+        
+        # 4. Calculate annual savings for each scenario (DIVERGENT timelines)
+        save_pre = annual_post_tax_pre * self.savings_rate
+        save_post = annual_post_tax_post * self.savings_rate
+        save_ubi = annual_redist_ubi * self.savings_rate
+        
+        # 5. Simulation Loop (Including Year 0)
+        for year in range(self.n_years + 1):
+            # Record current state of all 3 universes
+            self._record_state()
+            
+            # Step forward (except on the last year)
+            if year < self.n_years:
+                self.wealth_pre += save_pre
+                self.wealth_post += save_post
+                self.wealth_ubi += save_ubi
+            
+    def _record_state(self):
+        # Store full history
+        self.history['pre'].append(self.wealth_pre.copy())
+        self.history['post'].append(self.wealth_post.copy())
+        self.history['ubi'].append(self.wealth_ubi.copy())
+        
+        # Track Ginis
+        self.gini_history['pre'].append(Simulation.gini(self.wealth_pre))
+        self.gini_history['post'].append(Simulation.gini(self.wealth_post))
+        self.gini_history['ubi'].append(Simulation.gini(self.wealth_ubi))

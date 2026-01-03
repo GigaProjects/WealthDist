@@ -47,40 +47,41 @@ def plot_simulation_results(sim: Simulation):
     
     # ========== LEFT PLOT: Income Distribution ==========
     
-    # Decide on Scale (Log for Pareto/Extreme, Linear for Normal/LogNormal)
-    p1, p99 = np.percentile(sim.pre_tax_income, [1, 99.5])
-    use_log = (p99 / np.maximum(1, p1)) > 50
+    # We use a Linear Scale as requested by the user.
+    # Focus on 99th percentile to keep the "Long Tail" visible without squashing the main curve.
+    p99 = np.percentile(sim.pre_tax_income, 99.5)
     
     # Pre-calculate data
-    plot_pre = sim.pre_tax_income if not use_log else sim.pre_tax_income[sim.pre_tax_income > 1]
-    plot_post = sim.post_tax_income if not use_log else sim.post_tax_income[sim.post_tax_income > 1]
-    plot_redist = sim.redistributed_income if not use_log else sim.redistributed_income[sim.redistributed_income > 1]
+    plot_pre = sim.pre_tax_income
+    plot_post = sim.post_tax_income
+    plot_redist = sim.redistributed_income
 
     # Plotting
     sns.kdeplot(plot_pre, ax=ax, color="blue", fill=True, alpha=0.1, 
-                bw_adjust=1.2, log_scale=use_log, gridsize=500,
+                bw_adjust=1.2, log_scale=False, gridsize=500,
                 label=f"Pre-Tax (Gini: {stats['pre_gini']:.2f})")
     
+    # Capture the natural peak height of the pre-tax distribution
+    pre_max_y = ax.get_ylim()[1]
+    
     sns.kdeplot(plot_post, ax=ax, color="green", fill=True, alpha=0.2, 
-                bw_adjust=1.2, log_scale=use_log, gridsize=500,
+                bw_adjust=1.2, log_scale=False, gridsize=500,
                 label=f"Post-Tax (Gini: {stats['post_gini']:.2f})")
 
     sns.kdeplot(plot_redist, ax=ax, color="orange", fill=True, alpha=0.3, 
-                bw_adjust=1.2, log_scale=use_log, gridsize=500,
+                bw_adjust=1.2, log_scale=False, gridsize=500,
                 label=f"With UBI (Gini: {stats['redist_gini']:.2f})")
     
-    scale_name = "Log Scale" if use_log else "Linear Scale"
-    ax.set_title(f"Income Distribution ({scale_name})\nCollected from income tax: {tax_pct:.1f}% of all income")
+    # Force y-axis back to a readable range based on the pre-tax curve.
+    ax.set_ylim(0, pre_max_y * 1.5)
+    
+    ax.set_title(f"Income Distribution (Linear Scale)\nCollected from income tax: {tax_pct:.1f}% of all income")
     ax.set_xlabel("Income")
     ax.set_ylabel("Density")
     ax.xaxis.set_major_formatter(FuncFormatter(format_currency))
     
-    if use_log:
-        ax.set_xlim(np.maximum(1, p1 * 0.5), p99 * 2)
-    else:
-        # For linear scale, start at 0 and focus on 95th percentile
-        p95 = np.percentile(sim.pre_tax_income, 95)
-        ax.set_xlim(0, p95 * 1.3)
+    # Set x-limit to show most of the distribution
+    ax.set_xlim(0, p99 * 1.1)
 
     ax.legend(loc='upper right')
     
@@ -188,3 +189,132 @@ def lorenz_curve(data, ax, label, color):
     ax.set_xlabel("Cumulative Share of Population")
     ax.set_ylabel("Cumulative Share of Income")
 
+
+##### Interactive Plotting #####
+
+    ax.set_ylabel("Cumulative Share of Income")
+
+
+##### Interactive Plotting #####
+
+def plot_wealth_history(sim):
+    """
+    Plot animated wealth distribution over time.
+    Single plot with Play/Pause button and detailed stats.
+    """
+    from matplotlib.widgets import Slider, Button
+    import matplotlib.animation as animation
+    
+    # Setup Figure (Single Plot)
+    fig, ax = plt.subplots(figsize=(12, 8))
+    # Pre-calculate stats for all years
+    years = range(len(sim.history['post']))
+    
+    # Calculate constant annual stats (for info only)
+    total_income = np.sum(sim.annual_income)
+    total_annual_tax = np.sum(sim.annual_taxes)
+    avg_tax_rate = (total_annual_tax / total_income) * 100
+    
+    # Determine global limits and scaling (STABLE LINEAR RANGE)
+    # We use 'pre' wealth at YEAR 50 to find the max spread
+    final_pre = sim.history['pre'][-1]
+    
+    # Linear limits starting from 0 to 110% of max wealth
+    p99 = np.percentile(final_pre, 99.5)
+    min_w = 0
+    max_w = p99 * 1.1
+    
+    # State container for animation
+    state = {
+        'running': False,
+        'obj': None
+    }
+    
+    def update_plot(val):
+        year_idx = int(slider.val)
+        
+        # Get data for all 3 scenarios
+        w_pre = sim.history['pre'][year_idx]
+        w_post = sim.history['post'][year_idx]
+        w_ubi = sim.history['ubi'][year_idx]
+        
+        # Get pre-calculated Ginis
+        g_pre = sim.gini_history['pre'][year_idx]
+        g_post = sim.gini_history['post'][year_idx]
+        g_ubi = sim.gini_history['ubi'][year_idx]
+        
+        # Clear and Redraw
+        ax.clear()
+        
+        # Plot 3 Overlaid Distributions (Forced Linear)
+        sns.kdeplot(w_pre, ax=ax, color="blue", fill=True, alpha=0.1,
+                   log_scale=False, gridsize=200, label=f"No Tax Forever (Gini: {g_pre:.3f})")
+                   
+        sns.kdeplot(w_post, ax=ax, color="green", fill=True, alpha=0.2,
+                   log_scale=False, gridsize=200, label=f"Taxed, No UBI (Gini: {g_post:.3f})")
+                   
+        sns.kdeplot(w_ubi, ax=ax, color="orange", fill=True, alpha=0.3,
+                   log_scale=False, gridsize=200, label=f"Taxed + UBI (Gini: {g_ubi:.3f})")
+        
+        # Enhanced Title
+        title_text = (
+            f"Wealth Accumulation - Year {year_idx} (Linear Scale)\n"
+            f"Scenario Comparison after {year_idx} years of policy | Avg Tax: {avg_tax_rate:.1f}%"
+        )
+        ax.set_title(title_text, fontsize=14, pad=15)
+        ax.set_xlabel("Total Wealth ($)")
+        ax.set_ylabel("Density")
+        ax.legend(loc='upper right')
+        
+        ax.set_xlim(min_w, max_w)
+        ax.xaxis.set_major_formatter(FuncFormatter(format_currency))
+        ax.grid(True, alpha=0.3)
+        
+        fig.canvas.draw_idle()
+
+    # --- Slider ---
+    ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03], facecolor='lightgoldenrodyellow')
+    slider = Slider(
+        ax=ax_slider,
+        label='Year ',
+        valmin=0,
+        valmax=len(sim.history['pre']) - 1,
+        valinit=0,
+        valstep=1
+    )
+    
+    slider.on_changed(update_plot)
+    
+    # --- Play Button Logic ---
+    def animate(frame):
+        # Move slider forward, loop back at end
+        val = slider.val + 1
+        if val > slider.valmax:
+            val = 0
+        slider.set_val(val)
+        return val
+
+    def toggle_animation(event):
+        if state['running']:
+            if state['obj']:
+                state['obj'].event_source.stop()
+            state['running'] = False
+            btn.label.set_text('▶ Play')
+        else:
+            # interval=50ms (20 frames per second)
+            state['obj'] = animation.FuncAnimation(fig, animate, interval=50, save_count=100)
+            state['running'] = True
+            btn.label.set_text('⏸ Pause')
+        fig.canvas.draw_idle()
+
+    # Add Play Button
+    ax_btn = plt.axes([0.82, 0.02, 0.1, 0.05])
+    btn = Button(ax_btn, '▶ Play')
+    btn.on_clicked(toggle_animation)
+
+    # Initial Plot
+    update_plot(0)
+    plt.show()
+    print("\n[Interactive Mode] Use slider or Play button to view wealth evolution.")
+
+```

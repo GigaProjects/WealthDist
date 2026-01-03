@@ -28,11 +28,11 @@ def check_dependencies():
 check_dependencies()
 
 from tax_simulation import (
-    Simulation, 
+    Simulation, MultiYearSimulation,
     NormalDistribution, LogNormalDistribution, ParetoDistribution,
     FlatTax, ProgressiveTax, TaxBracket
 )
-from visualizer import plot_simulation_results
+from visualizer import plot_simulation_results, plot_wealth_history
 
 def get_float_input(prompt, default=None):
     while True:
@@ -130,25 +130,52 @@ def main():
             continue
             
         # 3. Simulate
-        print("\n--- Running Simulation ---")
+        # 3. Choose Simulation Type
+        print("\n--- Step 3: Simulation Type ---")
+        print("1. Single Year (Income Distribution)")
+        print("2. Multi-Year Wealth Accumulation (50 years)")
+        sim_type_choice = input("Choice (1-2): ")
+        
         n_people = 30000
-        sim = Simulation(dist, tax_system, n_people)
-        sim.run()
         
-        stats = sim.get_stats()
-        print("\n=== Results ===")
-        print("Tax Configuration:")
-        print(sim.tax_system.name)
-        print("-" * 30)
-        print(f"Pre-Tax Gini:           {stats['pre_gini']:.4f}")
-        print(f"Post-Tax Gini:          {stats['post_gini']:.4f}")
-        print(f"Post-Redistribution Gini: {stats['redist_gini']:.4f}")
-        print("-" * 30)
-        print(f"Total Revenue collected: ${stats['total_tax_revenue']:,.2f}")
-        print(f"UBI Payout per person:   ${stats['ubi_per_person']:,.2f}")
-        
-        print("\nShowing plots...")
-        plot_simulation_results(sim)
+        if sim_type_choice == '2':
+            # Multi-Year
+            n_people = 10000 # Lower sample size for faster animation
+            n_years = int(get_float_input("Number of Years", 50))
+            savings = get_float_input("Savings Rate (0.0-1.0)", 0.20)
+            multiplier = get_float_input("Initial Wealth Multiplier (Wealth = X * Income)", 6.0)
+            
+            print(f"\n--- Running Multi-Year Simulation ({n_years} years) ---")
+            sim = MultiYearSimulation(
+                dist, tax_system, n_people, n_years, savings, multiplier
+            )
+            sim.run()
+            
+            print("\n=== Results ===")
+            print("(See interactive graph for Gini evolution)")
+            print("\nShowing wealth history plots...")
+            plot_wealth_history(sim)
+            
+        else:
+            # Single Year (default)
+            print("\n--- Running Simulation ---")
+            sim = Simulation(dist, tax_system, n_people)
+            sim.run()
+            
+            stats = sim.get_stats()
+            print("\n=== Results ===")
+            print("Tax Configuration:")
+            print(sim.tax_system.name)
+            print("-" * 30)
+            print(f"Pre-Tax Gini:           {stats['pre_gini']:.4f}")
+            print(f"Post-Tax Gini:          {stats['post_gini']:.4f}")
+            print(f"Post-Redistribution Gini: {stats['redist_gini']:.4f}")
+            print("-" * 30)
+            print(f"Total Revenue collected: ${stats['total_tax_revenue']:,.2f}")
+            print(f"UBI Payout per person:   ${stats['ubi_per_person']:,.2f}")
+            
+            print("\nShowing plots...")
+            plot_simulation_results(sim)
         
         again = input("\nRun another simulation? (y/n): ")
         if again.lower() != 'y':

@@ -76,17 +76,36 @@ def main():
             
         # 2. Select Tax System
         print("\n--- Step 2: Configure Tax System ---")
-        print("1. Flat Tax")
-        print("2. Progressive Tax (Brackets)")
+        print("1. [PRESET] US 2024 Tax Brackets")
+        print("2. [PRESET] European Flat Tax (25%)")
+        print("3. Custom Flat Tax")
+        print("4. Custom Progressive Tax (Brackets)")
         
-        tax_choice = input("Choice (1-2): ")
+        tax_choice = input("Choice (1-4): ")
         tax_system = None
         
         if tax_choice == '1':
+            # US 2024 Individual Tax Brackets (Single Filer, Simplified)
+            print("Using US 2024 Tax Brackets (Single Filer)")
+            brackets = [
+                TaxBracket(0, 0.10),       # 10% on first $11,600
+                TaxBracket(11600, 0.12),   # 12% up to $47,150
+                TaxBracket(47150, 0.22),   # 22% up to $100,525
+                TaxBracket(100525, 0.24),  # 24% up to $191,950
+                TaxBracket(191950, 0.32),  # 32% up to $243,725
+                TaxBracket(243725, 0.35),  # 35% up to $609,350
+                TaxBracket(609350, 0.37),  # 37% above
+            ]
+            tax_system = ProgressiveTax(brackets)
+        elif tax_choice == '2':
+            # European-style Flat Tax (e.g., Estonia, Hungary)
+            print("Using European Flat Tax (25% with standard deduction)")
+            tax_system = FlatTax(0.25, 15000)  # 25% above $15k deduction
+        elif tax_choice == '3':
             rate = get_float_input("Enter Tax Rate (0.0 - 1.0)", 0.20)
             deduction = get_float_input("Enter Standard Deduction (0 for none)", 10000)
             tax_system = FlatTax(rate, deduction)
-        elif tax_choice == '2':
+        elif tax_choice == '4':
             brackets = []
             print("Enter brackets. Type 'done' when finished.")
             print("Format: threshold rate")
@@ -112,12 +131,15 @@ def main():
             
         # 3. Simulate
         print("\n--- Running Simulation ---")
-        n_people = 100000
+        n_people = 30000
         sim = Simulation(dist, tax_system, n_people)
         sim.run()
         
         stats = sim.get_stats()
         print("\n=== Results ===")
+        print("Tax Configuration:")
+        print(sim.tax_system.name)
+        print("-" * 30)
         print(f"Pre-Tax Gini:           {stats['pre_gini']:.4f}")
         print(f"Post-Tax Gini:          {stats['post_gini']:.4f}")
         print(f"Post-Redistribution Gini: {stats['redist_gini']:.4f}")

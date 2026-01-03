@@ -87,7 +87,10 @@ class FlatTax(TaxSystem):
 
     @property
     def name(self) -> str:
-        return f"Flat Tax ({self.rate*100}%)" + (f" w/ {self.deduction} deduction" if self.deduction else "")
+        if self.deduction > 0:
+            return f"Flat Tax ({self.rate*100:.1f}%) on everything above ${self.deduction:,.0f}"
+        else:
+            return f"Flat Tax ({self.rate*100:.1f}%) on all income"
 
 @dataclass
 class TaxBracket:
@@ -143,13 +146,14 @@ class ProgressiveTax(TaxSystem):
 
     @property
     def name(self) -> str:
-        s = "Progressive Tax:\n"
+        s = "Progressive Tax Brackets:\n"
         for i, b in enumerate(self.brackets):
+            rate_pct = f"{b.rate*100:.1f}%"
             if i + 1 < len(self.brackets):
                 next_t = self.brackets[i+1].threshold
-                s += f"  {b.threshold} - {next_t}: {b.rate*100}%\n"
+                s += f"  ${b.threshold:,.0f} - ${next_t:,.0f}: {rate_pct}\n"
             else:
-                s += f"  {b.threshold}+ : {b.rate*100}%\n"
+                s += f"  Everything over ${b.threshold:,.0f}: {rate_pct}\n"
         return s.strip()
 
 # --- Simulation Engine ---

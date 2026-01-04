@@ -2,6 +2,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Dict
 from dataclasses import dataclass
+from scipy import stats
 
 # --- Distribution Classes ---
 
@@ -10,7 +11,7 @@ class Distribution(ABC):
     
     @abstractmethod
     def generate(self, n: int) -> np.ndarray:
-        """Generate n samples from the distribution."""
+        """Generate n representative quantiles from the distribution."""
         pass
     
     @abstractmethod
@@ -21,43 +22,41 @@ class NormalDistribution(Distribution):
     def __init__(self, mean: float, std_dev: float):
         self.mean = mean
         self.std_dev = std_dev
+        self.dist = stats.norm(loc=mean, scale=std_dev)
         
     def generate(self, n: int) -> np.ndarray:
-        return np.maximum(0, np.random.normal(self.mean, self.std_dev, n))
+        # Use mid-point quantiles for smooth representation
+        p = np.linspace(0.5/n, 1-0.5/n, n)
+        return np.maximum(0, self.dist.ppf(p))
     
     def get_name(self) -> str:
         return f"Normal(μ={self.mean}, σ={self.std_dev})"
 
 class LogNormalDistribution(Distribution):
     def __init__(self, mean: float, sigma: float):
-        """
-        mean: Real mean of the distribution (not the underlying normal)
-        sigma: Standard deviation of the underlying normal distribution (shape parameter)
-        """
-        # Convert real mean to underlying mu
-        # E[X] = exp(mu + sigma^2/2) => mu = ln(E[X]) - sigma^2/2
         self.real_mean = mean
         self.sigma = sigma
-        self.mu = np.log(mean) - (sigma**2 / 2)
+        # E[X] = exp(mu + sigma^2/2) => exp(mu) = E[X] / exp(sigma^2/2)
+        scale = mean / np.exp(sigma**2 / 2)
+        self.dist = stats.lognorm(s=sigma, scale=scale)
         
     def generate(self, n: int) -> np.ndarray:
-        return np.random.lognormal(self.mu, self.sigma, n)
+        p = np.linspace(0.5/n, 1-0.5/n, n)
+        return self.dist.ppf(p)
     
     def get_name(self) -> str:
         return f"LogNormal(Mean={self.real_mean}, σ={self.sigma})"
 
 class ParetoDistribution(Distribution):
     def __init__(self, shape: float, scale: float):
-        """
-        shape (alpha): Tail index. Lower = more inequality (typically 1.16 used for 80-20 rule).
-        scale (xm): Minimum value.
-        """
         self.shape = shape
         self.scale = scale
+        self.dist = stats.pareto(b=shape, scale=scale)
         
     def generate(self, n: int) -> np.ndarray:
-        # Pareto II (Lomax) or Type I? classic Pareto Type I: x >= xm
-        return (np.random.pareto(self.shape, n) + 1) * self.scale
+        # Avoid the very extreme tail for Pareto to keep plots readable
+        p = np.linspace(0.5/n, 1-1.0/n, n)
+        return self.dist.ppf(p)
     
     def get_name(self) -> str:
         return f"Pareto(α={self.shape}, x_min={self.scale})"
@@ -79,7 +78,7 @@ class TaxSystem(ABC):
 class FlatTax(TaxSystem):
     def __init__(self, rate: float, deduction: float = 0.0):
         self.rate = rate
-        self.deduction = deduction  # Standard deduction
+        self.deduction = deduction
         
     def calculate_tax(self, incomes: np.ndarray) -> np.ndarray:
         taxable_income = np.maximum(0, incomes - self.deduction)
@@ -88,9 +87,9 @@ class FlatTax(TaxSystem):
     @property
     def name(self) -> str:
         if self.deduction > 0:
-            return f"Flat Tax ({self.rate*100:.1f}%) on everything above ${self.deduction:,.0f}"
+            return f"Flat Tax ({self.rate*100:.1f}%) above ${self.deduction:,.0f}"
         else:
-            return f"Flat Tax ({self.rate*100:.1f}%) on all income"
+            return f"Flat Tax ({self.rate*100:.1f}%)"
 
 @dataclass
 class TaxBracket:
@@ -99,193 +98,121 @@ class TaxBracket:
 
 class ProgressiveTax(TaxSystem):
     def __init__(self, brackets: List[TaxBracket]):
-        """
-        brackets: List of TaxBracket. 
-        Example: [TaxBracket(0, 0.10), TaxBracket(10000, 0.20)]
-        Means: 10% on 0-10k, 20% on everything above 10k.
-        Logic: Sort by threshold.
-        """
         self.brackets = sorted(brackets, key=lambda b: b.threshold)
         
     def calculate_tax(self, incomes: np.ndarray) -> np.ndarray:
         taxes = np.zeros_like(incomes)
-        
-        # We need to calculate marginal tax for each segment
-        # Iterate through brackets. 
-        # For bracket i, income covered is min(income, next_threshold) - current_threshold
-        
-        # Example: 
-        # 0     -> 10%
-        # 10000 -> 20%
-        # 50000 -> 40%
-        
-        # If income is 60000:
-        # 0-10000 (10k) * 0.10 = 1000
-        # 10000-50000 (40k) * 0.20 = 8000
-        # 50000-60000 (10k) * 0.40 = 4000
-        # Total = 13000
-        
         for i, bracket in enumerate(self.brackets):
-            # Start of this bracket
             start = bracket.threshold
             rate = bracket.rate
-            
-            # End of this bracket (next bracket's start, or infinity)
             if i + 1 < len(self.brackets):
                 end = self.brackets[i+1].threshold
-                # Amount of income in this bracket
-                # It is income above start, capped at end-start
                 income_in_bracket = np.clip(incomes - start, 0, end - start)
             else:
-                # Last bracket, goes to infinity
                 income_in_bracket = np.maximum(0, incomes - start)
-            
             taxes += income_in_bracket * rate
-            
         return taxes
 
     @property
     def name(self) -> str:
-        s = "Progressive Tax Brackets:\n"
-        for i, b in enumerate(self.brackets):
-            rate_pct = f"{b.rate*100:.1f}%"
-            if i + 1 < len(self.brackets):
-                next_t = self.brackets[i+1].threshold
-                s += f"  ${b.threshold:,.0f} - ${next_t:,.0f}: {rate_pct}\n"
-            else:
-                s += f"  Everything over ${b.threshold:,.0f}: {rate_pct}\n"
-        return s.strip()
+        return "Progressive Tax System"
 
 # --- Simulation Engine ---
 
 class Simulation:
-    def __init__(self, distribution: Distribution, tax_system: TaxSystem, n_people: int = 10000):
+    def __init__(self, distribution: Distribution, tax_system: TaxSystem, n: int = 1000):
         self.distribution = distribution
         self.tax_system = tax_system
-        self.n = n_people
+        self.n = n
         self.pre_tax_income = None
         self.taxes = None
         self.post_tax_income = None
         self.redistributed_income = None
         
     def run(self):
+        # Generate representative quantiles (already sorted)
         self.pre_tax_income = self.distribution.generate(self.n)
         self.taxes = self.tax_system.calculate_tax(self.pre_tax_income)
         self.post_tax_income = self.pre_tax_income - self.taxes
         
-        # Calculate Redistribution (UBI)
+        # Redistribution (UBI)
         total_revenue = np.sum(self.taxes)
-        ubi_amount = total_revenue / self.n
-        self.redistributed_income = self.post_tax_income + ubi_amount
+        self.ubi_amount = total_revenue / self.n
+        self.redistributed_income = self.post_tax_income + self.ubi_amount
         
     def get_stats(self) -> Dict:
-        if self.pre_tax_income is None:
-            return {}
-            
+        if self.pre_tax_income is None: return {}
         return {
-            "pre_mean": np.mean(self.pre_tax_income),
-            "post_mean": np.mean(self.post_tax_income),
             "pre_gini": self.gini(self.pre_tax_income),
             "post_gini": self.gini(self.post_tax_income),
             "redist_gini": self.gini(self.redistributed_income),
             "total_tax_revenue": np.sum(self.taxes),
-            "ubi_per_person": np.sum(self.taxes) / self.n,
-            "avg_tax_rate": np.mean(self.taxes / np.maximum(1, self.pre_tax_income))
+            "ubi_per_person": self.ubi_amount,
         }
     
     @staticmethod
     def gini(array):
-        """Calculate the Gini coefficient of a numpy array."""
-        # from https://github.com/oliviaguest/gini
+        """Calculate Gini coefficient. Data is assumed to be PRE-SORTED for speed."""
         if len(array) == 0: return 0
-        array = array.flatten()
-        if np.amin(array) < 0:
-            array -= np.amin(array)  # Values cannot be negative
-        array += 0.0000001  # Values cannot be 0
-        array = np.sort(array)
-        index = np.arange(1, array.shape[0] + 1)
-        n = array.shape[0]
-        return ((np.sum((2 * index - n - 1) * array)) / (n * np.sum(array)))
+        n = len(array)
+        # Using the simplified formula for sorted arrays
+        index = np.arange(1, n + 1)
+        return (np.sum((2 * index - n - 1) * array)) / (n * np.sum(array))
 
 
 @dataclass
 class MultiYearSimulation:
     distribution: Distribution
     tax_system: TaxSystem
-    n_people: int = 10000
+    n_people: int = 1000
     n_years: int = 50
     savings_rate: float = 0.20
     initial_wealth_multiplier: float = 6.0
+    depreciation_rate: float = 0.05 # Annual cost/decay (inflation, maintenance, etc.)
+    green_line_ubi_pct: float = 0.0 # Percentage of UBI redistributed in the Green line (0.0 to 1.0)
     
-    def __post_init__(self):
-        self.annual_income = None
-        
-        # Parallel Realities (Independent Timelines)
-        self.wealth_pre = None
-        self.wealth_post = None
-        self.wealth_ubi = None
-        
-        # History tracks
-        self.history = {
-            'pre': [],
-            'post': [],
-            'ubi': []
-        }
-        # Gini histories
-        self.gini_history = {
-            'pre': [],
-            'post': [],
-            'ubi': []
-        }
-        
     def run(self):
-        # 1. Generate constant annual income for all scenarios
+        # 1. Generate core income quantiles (sorted)
         self.annual_income = self.distribution.generate(self.n_people)
         
-        # 2. Calculate constant annual flows for each scenario
-        # Pre-tax scenario
-        annual_income_pre = self.annual_income
-        annual_taxes_pre = np.zeros_like(self.annual_income) # No taxes in pre-tax scenario
-        annual_post_tax_pre = annual_income_pre
-        
-        # Post-tax scenario (without UBI)
+        # 2. Flows (Vectorized)
         self.annual_taxes = self.tax_system.calculate_tax(self.annual_income)
-        annual_post_tax_post = self.annual_income - self.annual_taxes
+        annual_post_tax = self.annual_income - self.annual_taxes
+        ubi_per_person = np.sum(self.annual_taxes) / self.n_people
         
-        # UBI scenario (post-tax with redistribution)
-        total_revenue_ubi = np.sum(self.annual_taxes) # UBI revenue comes from the same tax system
-        ubi_per_person = total_revenue_ubi / self.n_people
-        annual_redist_ubi = annual_post_tax_post + ubi_per_person
+        # Orange Reality (100% UBI)
+        annual_ubi = annual_post_tax + ubi_per_person
+        # Green Reality (Variable UBI percentage)
+        annual_green = annual_post_tax + (ubi_per_person * self.green_line_ubi_pct)
         
-        # 3. Initialize Wealth for all scenarios (Year 0)
-        initial_wealth = self.annual_income * self.initial_wealth_multiplier
-        self.wealth_pre = initial_wealth.copy()
-        self.wealth_post = initial_wealth.copy()
-        self.wealth_ubi = initial_wealth.copy()
+        # 3. Initial Wealth
+        wealth_init = self.annual_income * self.initial_wealth_multiplier
         
-        # 4. Calculate annual savings for each scenario (DIVERGENT timelines)
-        save_pre = annual_post_tax_pre * self.savings_rate
-        save_post = annual_post_tax_post * self.savings_rate
-        save_ubi = annual_redist_ubi * self.savings_rate
+        # Parallel Realities
+        self.w_pre = wealth_init.copy()
+        self.w_post = wealth_init.copy()
+        self.w_ubi = wealth_init.copy()
         
-        # 5. Simulation Loop (Including Year 0)
-        for year in range(self.n_years + 1):
-            # Record current state of all 3 universes
-            self._record_state()
+        # Savings flows
+        s_pre = self.annual_income * self.savings_rate
+        s_post = annual_green * self.savings_rate
+        s_ubi = annual_ubi * self.savings_rate
+        
+        # History
+        self.history = {'pre': [], 'post': [], 'ubi': []}
+        self.gini_history = {'pre': [], 'post': [], 'ubi': []}
+        
+        # 4. Simulation Loop
+        for _ in range(self.n_years + 1):
+            self.history['pre'].append(self.w_pre.copy())
+            self.history['post'].append(self.w_post.copy())
+            self.history['ubi'].append(self.w_ubi.copy())
             
-            # Step forward (except on the last year)
-            if year < self.n_years:
-                self.wealth_pre += save_pre
-                self.wealth_post += save_post
-                self.wealth_ubi += save_ubi
+            self.gini_history['pre'].append(Simulation.gini(self.w_pre))
+            self.gini_history['post'].append(Simulation.gini(self.w_post))
+            self.gini_history['ubi'].append(Simulation.gini(self.w_ubi))
             
-    def _record_state(self):
-        # Store full history
-        self.history['pre'].append(self.wealth_pre.copy())
-        self.history['post'].append(self.wealth_post.copy())
-        self.history['ubi'].append(self.wealth_ubi.copy())
-        
-        # Track Ginis
-        self.gini_history['pre'].append(Simulation.gini(self.wealth_pre))
-        self.gini_history['post'].append(Simulation.gini(self.wealth_post))
-        self.gini_history['ubi'].append(Simulation.gini(self.wealth_ubi))
+            # Apply Decay THEN add Savings
+            self.w_pre = (self.w_pre * (1 - self.depreciation_rate)) + s_pre
+            self.w_post = (self.w_post * (1 - self.depreciation_rate)) + s_post
+            self.w_ubi = (self.w_ubi * (1 - self.depreciation_rate)) + s_ubi

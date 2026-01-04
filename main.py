@@ -136,18 +136,23 @@ def main():
         print("2. Multi-Year Wealth Accumulation (50 years)")
         sim_type_choice = input("Choice (1-2): ")
         
-        n_people = 30000
+        n_people = 1000  # 1000 representative points is perfect for curves
         
         if sim_type_choice == '2':
             # Multi-Year
-            n_people = 10000 # Lower sample size for faster animation
             n_years = int(get_float_input("Number of Years", 50))
             savings = get_float_input("Savings Rate (0.0-1.0)", 0.20)
+            decay = get_float_input("Annual Wealth Decay/Cost (0.0-1.0, e.g., 0.02 for ~2-3% net growth)", 0.02)
             multiplier = get_float_input("Initial Wealth Multiplier (Wealth = X * Income)", 6.0)
             
-            print(f"\n--- Running Multi-Year Simulation ({n_years} years) ---")
+            print(f"\n--- Running Fast Multi-Year Simulation ({n_years} years) ---")
+            
+            # --- CONFIGURATION VARIABLE ---
+            # Change this to set how much UBI the Green line gets (e.g. 0.5 for 50%)
+            GREEN_LINE_UBI_PCT = 0.0 
+            
             sim = MultiYearSimulation(
-                dist, tax_system, n_people, n_years, savings, multiplier
+                dist, tax_system, n_people, n_years, savings, multiplier, decay, GREEN_LINE_UBI_PCT
             )
             sim.run()
             
@@ -158,7 +163,7 @@ def main():
             
         else:
             # Single Year (default)
-            print("\n--- Running Simulation ---")
+            print("\n--- Running Fast Simulation ---")
             sim = Simulation(dist, tax_system, n_people)
             sim.run()
             

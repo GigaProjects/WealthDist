@@ -72,6 +72,14 @@ def plot_simulation_results(sim: Simulation):
                 bw_adjust=1.2, log_scale=False, gridsize=500,
                 label=f"With UBI (Gini: {stats['redist_gini']:.2f})")
     
+    # Add Mean Lines for Single Year Plot
+    m_pre = np.mean(plot_pre)
+    m_post = np.mean(plot_post)
+    m_redist = np.mean(plot_redist)
+    ax.axvline(m_pre, color="darkblue", linestyle="--", alpha=0.9, linewidth=2.5, zorder=10, label=f"Mean (Pre-Tax): {format_currency(m_pre)}")
+    ax.axvline(m_post, color="green", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (Post-Tax): {format_currency(m_post)}")
+    ax.axvline(m_redist, color="orange", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (With UBI): {format_currency(m_redist)}")
+    
     # Force y-axis back to a readable range based on the pre-tax curve.
     ax.set_ylim(0, pre_max_y * 1.5)
     
@@ -207,6 +215,7 @@ def plot_wealth_history(sim):
     
     # Setup Figure (Single Plot)
     fig, ax = plt.subplots(figsize=(12, 8))
+    fig.subplots_adjust(bottom=0.2) # Make room for controls at the bottom
     # Pre-calculate stats for all years
     years = range(len(sim.history['post']))
     
@@ -242,19 +251,37 @@ def plot_wealth_history(sim):
         g_pre = sim.gini_history['pre'][year_idx]
         g_post = sim.gini_history['post'][year_idx]
         g_ubi = sim.gini_history['ubi'][year_idx]
+
+        # Calculate Means
+        m_pre = np.mean(w_pre)
+        m_post = np.mean(w_post)
+        m_ubi = np.mean(w_ubi)
         
         # Clear and Redraw
         ax.clear()
         
         # Plot 3 Overlaid Distributions (Forced Linear)
         sns.kdeplot(w_pre, ax=ax, color="blue", fill=True, alpha=0.1,
-                   log_scale=False, gridsize=200, label=f"No Tax Forever (Gini: {g_pre:.3f})")
+                   log_scale=False, gridsize=200, label=f"No Tax Forever (Gini: {g_pre:.3f}, Mean: {format_currency(m_pre)})")
                    
         sns.kdeplot(w_post, ax=ax, color="green", fill=True, alpha=0.2,
-                   log_scale=False, gridsize=200, label=f"Taxed, No UBI (Gini: {g_post:.3f})")
+                   log_scale=False, gridsize=200, label=f"Taxed, No UBI (Gini: {g_post:.3f}, Mean: {format_currency(m_post)})")
                    
         sns.kdeplot(w_ubi, ax=ax, color="orange", fill=True, alpha=0.3,
-                   log_scale=False, gridsize=200, label=f"Taxed + UBI (Gini: {g_ubi:.3f})")
+                   log_scale=False, gridsize=200, label=f"Taxed + UBI (Gini: {g_ubi:.3f}, Mean: {format_currency(m_ubi)})")
+
+        # Add Vertical Lines for Means (Robust Method)
+        # We use high zorder and solid lines to ensure they are seen
+        ax.axvline(m_pre, color="blue", linestyle="-", alpha=0.9, linewidth=2.5, zorder=100)
+        ax.axvline(m_post, color="green", linestyle="-", alpha=0.9, linewidth=1.5, zorder=99)
+        ax.axvline(m_ubi, color="orange", linestyle="-", alpha=0.9, linewidth=1.5, zorder=99)
+
+        # Direct text labels over the lines to prevent any confusion
+        y_top = ax.get_ylim()[1]
+        ax.text(m_pre, y_top * 0.95, "Mean (Blue)", color="blue", fontweight='bold', ha='center', zorder=101)
+        ax.text(m_post, y_top * 0.90, "Mean (Green)", color="green", fontweight='bold', ha='center', zorder=101)
+        ax.text(m_ubi, y_top * 0.85, "Mean (Orange)", color="orange", fontweight='bold', ha='center', zorder=101)
+
         
         # Enhanced Title
         title_text = (
@@ -273,7 +300,7 @@ def plot_wealth_history(sim):
         fig.canvas.draw_idle()
 
     # --- Slider ---
-    ax_slider = plt.axes([0.2, 0.1, 0.6, 0.03], facecolor='lightgoldenrodyellow')
+    ax_slider = plt.axes([0.15, 0.08, 0.65, 0.03], facecolor='lightgoldenrodyellow')
     slider = Slider(
         ax=ax_slider,
         label='Year ',
@@ -308,7 +335,7 @@ def plot_wealth_history(sim):
         fig.canvas.draw_idle()
 
     # Add Play Button
-    ax_btn = plt.axes([0.82, 0.02, 0.1, 0.05])
+    ax_btn = plt.axes([0.85, 0.07, 0.1, 0.05])
     btn = Button(ax_btn, '▶ Play')
     btn.on_clicked(toggle_animation)
 

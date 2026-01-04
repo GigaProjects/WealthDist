@@ -317,4 +317,3 @@ def plot_wealth_history(sim):
     plt.show()
     print("\n[Interactive Mode] Use slider or Play button to view wealth evolution.")
 
-```

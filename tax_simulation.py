@@ -166,16 +166,21 @@ class MultiYearSimulation:
     tax_system: TaxSystem
     n_people: int = 1000
     n_years: int = 50
-    savings_rate: float = 0.20
     initial_wealth_multiplier: float = 6.0
     depreciation_rate: float = 0.05 # Annual cost/decay (inflation, maintenance, etc.)
+    return_on_capital: float = 0.05 # Annual return on existing wealth (r)
     green_line_ubi_pct: float = 0.0 # Percentage of UBI redistributed in the Green line (0.0 to 1.0)
     
     def run(self):
         # 1. Generate core income quantiles (sorted)
         self.annual_income = self.distribution.generate(self.n_people)
         
-        # 2. Flows (Vectorized)
+        # 2. Variable Savings Rate (Realistic MPC)
+        # Lowest income saves 2%, Highest income saves 50%
+        # Since income is sorted, we can use linspace for the population rank
+        self.savings_rate_vector = np.linspace(0.02, 0.50, self.n_people)
+        
+        # 3. Flows (Vectorized)
         self.annual_taxes = self.tax_system.calculate_tax(self.annual_income)
         annual_post_tax = self.annual_income - self.annual_taxes
         ubi_per_person = np.sum(self.annual_taxes) / self.n_people
@@ -185,7 +190,7 @@ class MultiYearSimulation:
         # Green Reality (Variable UBI percentage)
         annual_green = annual_post_tax + (ubi_per_person * self.green_line_ubi_pct)
         
-        # 3. Initial Wealth
+        # 4. Initial Wealth
         wealth_init = self.annual_income * self.initial_wealth_multiplier
         
         # Parallel Realities
@@ -193,17 +198,18 @@ class MultiYearSimulation:
         self.w_post = wealth_init.copy()
         self.w_ubi = wealth_init.copy()
         
-        # Savings flows
-        s_pre = self.annual_income * self.savings_rate
-        s_post = annual_green * self.savings_rate
-        s_ubi = annual_ubi * self.savings_rate
+        # Savings flows (Vectorized)
+        s_pre = self.annual_income * self.savings_rate_vector
+        s_post = annual_green * self.savings_rate_vector
+        s_ubi = annual_ubi * self.savings_rate_vector
         
         # History
         self.history = {'pre': [], 'post': [], 'ubi': []}
         self.gini_history = {'pre': [], 'post': [], 'ubi': []}
+        self.gdp_growth_history = {'pre': [0.0], 'post': [0.0], 'ubi': [0.0]} # Annual % change in total wealth
         
-        # 4. Simulation Loop
-        for _ in range(self.n_years + 1):
+        # 5. Simulation Loop
+        for year in range(self.n_years + 1):
             self.history['pre'].append(self.w_pre.copy())
             self.history['post'].append(self.w_post.copy())
             self.history['ubi'].append(self.w_ubi.copy())
@@ -212,7 +218,20 @@ class MultiYearSimulation:
             self.gini_history['post'].append(Simulation.gini(self.w_post))
             self.gini_history['ubi'].append(Simulation.gini(self.w_ubi))
             
-            # Apply Decay THEN add Savings
-            self.w_pre = (self.w_pre * (1 - self.depreciation_rate)) + s_pre
-            self.w_post = (self.w_post * (1 - self.depreciation_rate)) + s_post
-            self.w_ubi = (self.w_ubi * (1 - self.depreciation_rate)) + s_ubi
+            # Step forward
+            if year < self.n_years:
+                prev_pre = np.sum(self.w_pre)
+                prev_post = np.sum(self.w_post)
+                prev_ubi = np.sum(self.w_ubi)
+                
+                # Apply Returns & Decay THEN add Savings
+                # Logic: Wealth = Wealth * (1 - decay + return) + Savings
+                # This implements 'r > g' compounding
+                self.w_pre = (self.w_pre * (1 - self.depreciation_rate + self.return_on_capital)) + s_pre
+                self.w_post = (self.w_post * (1 - self.depreciation_rate + self.return_on_capital)) + s_post
+                self.w_ubi = (self.w_ubi * (1 - self.depreciation_rate + self.return_on_capital)) + s_ubi
+                
+                # Record GDP Growth
+                self.gdp_growth_history['pre'].append((np.sum(self.w_pre)/prev_pre - 1) * 100)
+                self.gdp_growth_history['post'].append((np.sum(self.w_post)/prev_post - 1) * 100)
+                self.gdp_growth_history['ubi'].append((np.sum(self.w_ubi)/prev_ubi - 1) * 100)

@@ -76,9 +76,10 @@ def plot_simulation_results(sim: Simulation):
     m_pre = np.mean(plot_pre)
     m_post = np.mean(plot_post)
     m_redist = np.mean(plot_redist)
-    ax.axvline(m_pre, color="darkblue", linestyle="--", alpha=0.9, linewidth=2.5, zorder=10, label=f"Mean (Pre-Tax): {format_currency(m_pre)}")
-    ax.axvline(m_post, color="green", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (Post-Tax): {format_currency(m_post)}")
-    ax.axvline(m_redist, color="orange", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (With UBI): {format_currency(m_redist)}")
+    # Average lines removed per user request
+    # ax.axvline(m_pre, color="darkblue", linestyle="--", alpha=0.9, linewidth=2.5, zorder=10, label=f"Mean (Pre-Tax): {format_currency(m_pre)}")
+    # ax.axvline(m_post, color="green", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (Post-Tax): {format_currency(m_post)}")
+    # ax.axvline(m_redist, color="orange", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (With UBI): {format_currency(m_redist)}")
     
     # Force y-axis back to a readable range based on the pre-tax curve.
     ax.set_ylim(0, pre_max_y * 1.5)
@@ -247,10 +248,13 @@ def plot_wealth_history(sim):
         w_post = sim.history['post'][year_idx]
         w_ubi = sim.history['ubi'][year_idx]
         
-        # Get pre-calculated Ginis
+        # Get pre-calculated Ginis and GDP Growth
         g_pre = sim.gini_history['pre'][year_idx]
         g_post = sim.gini_history['post'][year_idx]
         g_ubi = sim.gini_history['ubi'][year_idx]
+        grow_pre = sim.gdp_growth_history['pre'][year_idx]
+        grow_post = sim.gdp_growth_history['post'][year_idx]
+        grow_ubi = sim.gdp_growth_history['ubi'][year_idx]
 
         # Calculate Means
         m_pre = np.mean(w_pre)
@@ -270,22 +274,17 @@ def plot_wealth_history(sim):
         sns.kdeplot(w_ubi, ax=ax, color="orange", fill=True, alpha=0.3,
                    log_scale=False, gridsize=200, label=f"Taxed + UBI (Gini: {g_ubi:.3f}, Mean: {format_currency(m_ubi)})")
 
-        # Add Vertical Lines for Means (Robust Method)
-        # We use high zorder and solid lines to ensure they are seen
-        ax.axvline(m_pre, color="blue", linestyle="-", alpha=0.9, linewidth=2.5, zorder=100)
-        ax.axvline(m_post, color="green", linestyle="-", alpha=0.9, linewidth=1.5, zorder=99)
-        ax.axvline(m_ubi, color="orange", linestyle="-", alpha=0.9, linewidth=1.5, zorder=99)
-
-        # Direct text labels over the lines to prevent any confusion
-        y_top = ax.get_ylim()[1]
-        ax.text(m_pre, y_top * 0.95, "Mean (Blue)", color="blue", fontweight='bold', ha='center', zorder=101)
-        ax.text(m_post, y_top * 0.90, "Mean (Green)", color="green", fontweight='bold', ha='center', zorder=101)
-        ax.text(m_ubi, y_top * 0.85, "Mean (Orange)", color="orange", fontweight='bold', ha='center', zorder=101)
+        # Add Vertical Lines for Means (one for each graph)
+        # Average lines removed per user request
+        # ax.axvline(m_pre, color="blue", linestyle="--", alpha=0.8, linewidth=2, zorder=10)
+        # ax.axvline(m_post, color="green", linestyle="--", alpha=0.8, linewidth=1.5, zorder=9)
+        # ax.axvline(m_ubi, color="orange", linestyle="--", alpha=0.8, linewidth=1.5, zorder=9)
 
         
-        # Enhanced Title
+        # Enhanced Title with GDP Growth Info
         title_text = (
             f"Wealth Accumulation - Year {year_idx} (Linear Scale)\n"
+            f"Annual GDP Growth:  Pre-Tax: {grow_pre:+.2f}% | Taxed: {grow_post:+.2f}% | UBI: {grow_ubi:+.2f}%\n"
             f"Scenario Comparison after {year_idx} years of policy | Avg Tax: {avg_tax_rate:.1f}%"
         )
         ax.set_title(title_text, fontsize=14, pad=15)

@@ -141,18 +141,26 @@ def main():
         if sim_type_choice == '2':
             # Multi-Year
             n_years = int(get_float_input("Number of Years", 50))
-            savings = get_float_input("Savings Rate (0.0-1.0)", 0.20)
-            decay = get_float_input("Annual Wealth Decay/Cost (0.0-1.0, e.g., 0.02 for ~2-3% net growth)", 0.02)
+            decay = get_float_input("Annual Wealth Decay/Cost (0.0-1.0, e.g., 0.02 for ~2% net inflation/cost)", 0.02)
+            returns = get_float_input("Annual Return on Capital (0.0-1.0, e.g., 0.05 for 5% APR on wealth)", 0.05)
             multiplier = get_float_input("Initial Wealth Multiplier (Wealth = X * Income)", 6.0)
             
             print(f"\n--- Running Fast Multi-Year Simulation ({n_years} years) ---")
+            print("Note: Savings rates are now variable (2% for lowest, 50% for highest income).")
             
             # --- CONFIGURATION VARIABLE ---
             # Change this to set how much UBI the Green line gets (e.g. 0.5 for 50%)
             GREEN_LINE_UBI_PCT = 0.0 
             
             sim = MultiYearSimulation(
-                dist, tax_system, n_people, n_years, savings, multiplier, decay, GREEN_LINE_UBI_PCT
+                distribution=dist, 
+                tax_system=tax_system, 
+                n_people=n_people, 
+                n_years=n_years, 
+                initial_wealth_multiplier=multiplier, 
+                depreciation_rate=decay, 
+                return_on_capital=returns,
+                green_line_ubi_pct=GREEN_LINE_UBI_PCT
             )
             sim.run()
             

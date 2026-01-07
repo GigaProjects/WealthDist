@@ -34,13 +34,22 @@ from tax_simulation import (
 )
 from visualizer import plot_simulation_results, plot_wealth_history
 
-def get_float_input(prompt, default=None):
+def get_float_input(prompt, default=None, min_val=None, max_val=None):
     while True:
         try:
             val_str = input(f"{prompt} (default {default}): " if default is not None else f"{prompt}: ")
             if not val_str and default is not None:
-                return default
-            return float(val_str)
+                val = default
+            else:
+                val = float(val_str)
+            
+            if min_val is not None and val < min_val:
+                print(f"Error: Value must be at least {min_val}.")
+                continue
+            if max_val is not None and val > max_val:
+                print(f"Error: Value must be no more than {max_val}.")
+                continue
+            return val
         except ValueError:
             print("Please enter a valid number.")
 
@@ -58,17 +67,16 @@ def main():
         
         dist = None
         if choice == '1':
-            mean = get_float_input("Enter Mean Income", 50000)
-            sigma = get_float_input("Enter Sigma (inequality param, ~0.5-1.0)", 0.75)
+            mean = get_float_input("Enter Mean Income", 50000, min_val=0.001)
+            sigma = get_float_input("Enter Sigma (inequality param, ~0.5-1.0)", 0.75, min_val=0.001)
             dist = LogNormalDistribution(mean, sigma)
         elif choice == '2':
-            print("Note: Pareto is usually for top incomes. Be careful with parameters.")
-            alpha = get_float_input("Enter Shape (Alpha, ~1.16 for 80/20)", 1.16)
-            scale = get_float_input("Enter Scale (Min Income)", 10000)
+            alpha = get_float_input("Enter Shape (α, usually 1.5-2.5)", 2.0, min_val=0.001)
+            scale = get_float_input("Enter Scale (minimum income)", 30000, min_val=0.001)
             dist = ParetoDistribution(alpha, scale)
         elif choice == '3':
-            mean = get_float_input("Enter Mean Income", 50000)
-            std = get_float_input("Enter Std Dev", 15000)
+            mean = get_float_input("Enter Mean", 50000)
+            std = get_float_input("Enter Std Dev", 15000, min_val=0.001)
             dist = NormalDistribution(mean, std)
         else:
             print("Invalid choice.")

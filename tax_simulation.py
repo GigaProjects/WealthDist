@@ -175,40 +175,33 @@ class MultiYearSimulation:
         # 1. Generate core income quantiles (sorted)
         self.annual_income = self.distribution.generate(self.n_people)
         
-        # 2. Variable Savings Rate (Realistic MPC)
-        # Lowest income saves 2%, Highest income saves 50%
-        # Since income is sorted, we can use linspace for the population rank
-        self.savings_rate_vector = np.linspace(0.02, 0.50, self.n_people)
-        
-        # 3. Flows (Vectorized)
+        # 3. Disposable Labor Incomes (Calculated once)
         self.annual_taxes = self.tax_system.calculate_tax(self.annual_income)
-        annual_post_tax = self.annual_income - self.annual_taxes
-        ubi_per_person = np.sum(self.annual_taxes) / self.n_people
+        net_labor_pre = self.annual_income.copy() # Pre-tax labor
+        net_labor_post = self.annual_income - self.annual_taxes + (np.sum(self.annual_taxes) / self.n_people * self.green_line_ubi_pct)
+        net_labor_ubi  = self.annual_income - self.annual_taxes + (np.sum(self.annual_taxes) / self.n_people)
         
-        # Orange Reality (100% UBI)
-        annual_ubi = annual_post_tax + ubi_per_person
-        # Green Reality (Variable UBI percentage)
-        annual_green = annual_post_tax + (ubi_per_person * self.green_line_ubi_pct)
-        
-        # 4. Initial Wealth
+        # 4. Savings Propensity Scale
+        # We use the initial labor income distribution as a "standard" to map income to percentile.
+        # This ensures that if someone's inflow matches the top labor earners, they save at the top rate.
+        income_sorted = np.sort(self.annual_income)
+        def get_savings_rate(total_inflow):
+            ranks = np.searchsorted(income_sorted, total_inflow) / self.n_people
+            ranks = np.clip(ranks, 0, 1)
+            return 0.02 + (ranks ** 3) * 0.48
+
+        # 5. Initialization
         wealth_init = self.annual_income * self.initial_wealth_multiplier
-        
-        # Parallel Realities
         self.w_pre = wealth_init.copy()
         self.w_post = wealth_init.copy()
         self.w_ubi = wealth_init.copy()
         
-        # Savings flows (Vectorized)
-        s_pre = self.annual_income * self.savings_rate_vector
-        s_post = annual_green * self.savings_rate_vector
-        s_ubi = annual_ubi * self.savings_rate_vector
-        
         # History
         self.history = {'pre': [], 'post': [], 'ubi': []}
         self.gini_history = {'pre': [], 'post': [], 'ubi': []}
-        self.gdp_growth_history = {'pre': [0.0], 'post': [0.0], 'ubi': [0.0]} # Annual % change in total wealth
+        self.gdp_growth_history = {'pre': [0.0], 'post': [0.0], 'ubi': [0.0]}
         
-        # 5. Simulation Loop
+        # 6. Simulation Loop
         for year in range(self.n_years + 1):
             self.history['pre'].append(self.w_pre.copy())
             self.history['post'].append(self.w_post.copy())
@@ -224,12 +217,22 @@ class MultiYearSimulation:
                 prev_post = np.sum(self.w_post)
                 prev_ubi = np.sum(self.w_ubi)
                 
-                # Apply Returns & Decay THEN add Savings
-                # Logic: Wealth = Wealth * (1 - decay + return) + Savings
-                # This implements 'r > g' compounding
-                self.w_pre = (self.w_pre * (1 - self.depreciation_rate + self.return_on_capital)) + s_pre
-                self.w_post = (self.w_post * (1 - self.depreciation_rate + self.return_on_capital)) + s_post
-                self.w_ubi = (self.w_ubi * (1 - self.depreciation_rate + self.return_on_capital)) + s_ubi
+                # Dynamic Logic:
+                # 1. Calculate Total Annual Inflow (Net Labor + Capital Returns)
+                inflow_pre = net_labor_pre + (self.w_pre * self.return_on_capital)
+                inflow_post = net_labor_post + (self.w_post * self.return_on_capital)
+                inflow_ubi = net_labor_ubi + (self.w_ubi * self.return_on_capital)
+                
+                # 2. Determine Savings Propensity based on Total Inflow
+                s_rate_pre = get_savings_rate(inflow_pre)
+                s_rate_post = get_savings_rate(inflow_post)
+                s_rate_ubi = get_savings_rate(inflow_ubi)
+                
+                # 3. Update Wealth: (Maintenance) + (Saved Inflow)
+                # Formula: CurrentWealth * (1 - decay) + (TotalInflow * SavingsRate)
+                self.w_pre = (self.w_pre * (1 - self.depreciation_rate)) + (inflow_pre * s_rate_pre)
+                self.w_post = (self.w_post * (1 - self.depreciation_rate)) + (inflow_post * s_rate_post)
+                self.w_ubi = (self.w_ubi * (1 - self.depreciation_rate)) + (inflow_ubi * s_rate_ubi)
                 
                 # Record GDP Growth
                 self.gdp_growth_history['pre'].append((np.sum(self.w_pre)/prev_pre - 1) * 100)

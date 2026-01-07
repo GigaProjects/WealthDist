@@ -56,27 +56,28 @@ def plot_simulation_results(sim: Simulation):
     plot_post = sim.post_tax_income
     plot_redist = sim.redistributed_income
 
+    # Calculate Mean Wealth
+    m_pre = np.mean(plot_pre)
+    m_post = np.mean(plot_post)
+    m_redist = np.mean(plot_redist)
+
     # Plotting
     sns.kdeplot(plot_pre, ax=ax, color="blue", fill=True, alpha=0.1, 
                 bw_adjust=1.2, log_scale=False, gridsize=500,
-                label=f"Pre-Tax (Gini: {stats['pre_gini']:.2f})")
+                label=f"Pre-Tax (Gini: {stats['pre_gini']:.2f}, Mean: {format_currency(m_pre)})")
     
     # Capture the natural peak height of the pre-tax distribution
     pre_max_y = ax.get_ylim()[1]
     
     sns.kdeplot(plot_post, ax=ax, color="green", fill=True, alpha=0.2, 
                 bw_adjust=1.2, log_scale=False, gridsize=500,
-                label=f"Post-Tax (Gini: {stats['post_gini']:.2f})")
+                label=f"Post-Tax (Gini: {stats['post_gini']:.2f}, Mean: {format_currency(m_post)})")
 
     sns.kdeplot(plot_redist, ax=ax, color="orange", fill=True, alpha=0.3, 
                 bw_adjust=1.2, log_scale=False, gridsize=500,
-                label=f"With UBI (Gini: {stats['redist_gini']:.2f})")
+                label=f"With UBI (Gini: {stats['redist_gini']:.2f}, Mean: {format_currency(m_redist)})")
     
-    # Add Mean Lines for Single Year Plot
-    m_pre = np.mean(plot_pre)
-    m_post = np.mean(plot_post)
-    m_redist = np.mean(plot_redist)
-    # Average lines removed per user request
+    # Add Mean Lines for Single Year Plot (Average lines removed per user request)
     # ax.axvline(m_pre, color="darkblue", linestyle="--", alpha=0.9, linewidth=2.5, zorder=10, label=f"Mean (Pre-Tax): {format_currency(m_pre)}")
     # ax.axvline(m_post, color="green", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (Post-Tax): {format_currency(m_post)}")
     # ax.axvline(m_redist, color="orange", linestyle="--", alpha=0.7, linewidth=1.5, zorder=9, label=f"Mean (With UBI): {format_currency(m_redist)}")
@@ -135,10 +136,10 @@ def plot_simulation_results(sim: Simulation):
                     
                     # Label on the y-axis side
                     ax2.annotate(f'{actual_effective_rate:.1f}%', 
-                               xy=(0, actual_effective_rate), 
-                               xytext=(-5, 0), textcoords='offset points',
-                               fontsize=8, color=colors[i], ha='right', va='center',
-                               fontweight='bold')
+                                xy=(0, actual_effective_rate), 
+                                xytext=(-5, 0), textcoords='offset points',
+                                fontsize=8, color=colors[i], ha='right', va='center',
+                                fontweight='bold')
         
         elif isinstance(sim.tax_system, FlatTax):
             flat_rate = sim.tax_system.rate * 100
@@ -165,11 +166,7 @@ def plot_simulation_results(sim: Simulation):
         ax2.set_ylim(0, min(100, max_rate * 1.15))
         
         # X limits
-        if use_log:
-            ax2.set_xscale('log')
-            ax2.set_xlim(np.maximum(1, p1 * 0.5), p99 * 2)
-        else:
-            ax2.set_xlim(0, max_income)
+        ax2.set_xlim(0, max_income)
         
         ax2.legend(loc='lower right')
         ax2.grid(True, alpha=0.3)
@@ -198,148 +195,127 @@ def lorenz_curve(data, ax, label, color):
     ax.set_xlabel("Cumulative Share of Population")
     ax.set_ylabel("Cumulative Share of Income")
 
-
-##### Interactive Plotting #####
-
-    ax.set_ylabel("Cumulative Share of Income")
-
-
-##### Interactive Plotting #####
-
 def plot_wealth_history(sim):
     """
     Plot animated wealth distribution over time.
-    Single plot with Play/Pause button and detailed stats.
+    Dual subplot version (Side-by-Side):
+    1. Wealth Distribution (KDE) - Dynamic
+    2. Gini Coefficient History - Static with Indicator
     """
     from matplotlib.widgets import Slider, Button
     import matplotlib.animation as animation
     
-    # Setup Figure (Single Plot)
-    fig, ax = plt.subplots(figsize=(12, 8))
-    fig.subplots_adjust(bottom=0.2) # Make room for controls at the bottom
-    # Pre-calculate stats for all years
-    years = range(len(sim.history['post']))
+    # Setup Figure (Side-by-side square-ish plots)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 7))
+    fig.subplots_adjust(bottom=0.2, wspace=0.25) # Room for slider/button and horizontal spacing
     
-    # Calculate constant annual stats (for info only)
+    # Pre-calculate constant global stats
     total_income = np.sum(sim.annual_income)
     total_annual_tax = np.sum(sim.annual_taxes)
-    avg_tax_rate = (total_annual_tax / total_income) * 100
+    avg_tax_rate = (total_annual_tax / total_income) * 100 if total_income > 0 else 0
     
-    # Determine global limits and scaling (STABLE LINEAR RANGE)
-    # We use 'pre' wealth at YEAR 50 to find the max spread
+    # Global limits for stable KDE
     final_pre = sim.history['pre'][-1]
-    
-    # Linear limits starting from 0 to 110% of max wealth
     p99 = np.percentile(final_pre, 99.5)
     min_w = 0
-    max_w = p99 * 1.1
+    max_w = max(1.0, p99 * 1.1) if not np.isnan(p99) else 1.0
     
-    # State container for animation
-    state = {
-        'running': False,
-        'obj': None
-    }
+    # --- AX2: Static Gini History Setup (Drawn Once) ---
+    all_years = range(sim.n_years + 1)
+    ax2.plot(all_years, sim.gini_history['pre'], color="blue", alpha=0.9, linewidth=2, label="No Tax")
+    ax2.plot(all_years, sim.gini_history['post'], color="green", alpha=0.9, linewidth=2, label="Taxed")
+    ax2.plot(all_years, sim.gini_history['ubi'], color="orange", alpha=0.9, linewidth=2, label="UBI")
+    
+    # Create the movable indicator dots and line for ax2
+    curr_line = ax2.axvline(0, color='red', linestyle='--', alpha=0.4, label='Current Year')
+    dot_pre, = ax2.plot([0], [sim.gini_history['pre'][0]], 'o', color="blue", markersize=6)
+    dot_post, = ax2.plot([0], [sim.gini_history['post'][0]], 'o', color="green", markersize=6)
+    dot_ubi, = ax2.plot([0], [sim.gini_history['ubi'][0]], 'o', color="orange", markersize=6)
+
+    ax2.set_title("Inequality Evolution (Static View)", fontsize=13)
+    ax2.set_xlabel("Year")
+    ax2.set_ylabel("Gini Coefficient")
+    ax2.set_xlim(0, sim.n_years)
+    ax2.set_ylim(0, 1.0)
+    ax2.legend(loc='lower right', fontsize=9)
+    ax2.grid(True, alpha=0.3)
+    
+    # State container
+    state = {'running': False, 'obj': None}
     
     def update_plot(val):
         year_idx = int(slider.val)
         
-        # Get data for all 3 scenarios
+        # Get data for current year
         w_pre = sim.history['pre'][year_idx]
         w_post = sim.history['post'][year_idx]
         w_ubi = sim.history['ubi'][year_idx]
         
-        # Get pre-calculated Ginis and GDP Growth
         g_pre = sim.gini_history['pre'][year_idx]
         g_post = sim.gini_history['post'][year_idx]
         g_ubi = sim.gini_history['ubi'][year_idx]
+        
         grow_pre = sim.gdp_growth_history['pre'][year_idx]
         grow_post = sim.gdp_growth_history['post'][year_idx]
         grow_ubi = sim.gdp_growth_history['ubi'][year_idx]
-
+        
         # Calculate Means
         m_pre = np.mean(w_pre)
         m_post = np.mean(w_post)
         m_ubi = np.mean(w_ubi)
-        
-        # Clear and Redraw
-        ax.clear()
-        
-        # Plot 3 Overlaid Distributions (Forced Linear)
-        sns.kdeplot(w_pre, ax=ax, color="blue", fill=True, alpha=0.1,
-                   log_scale=False, gridsize=200, label=f"No Tax Forever (Gini: {g_pre:.3f}, Mean: {format_currency(m_pre)})")
-                   
-        sns.kdeplot(w_post, ax=ax, color="green", fill=True, alpha=0.2,
-                   log_scale=False, gridsize=200, label=f"Taxed, No UBI (Gini: {g_post:.3f}, Mean: {format_currency(m_post)})")
-                   
-        sns.kdeplot(w_ubi, ax=ax, color="orange", fill=True, alpha=0.3,
-                   log_scale=False, gridsize=200, label=f"Taxed + UBI (Gini: {g_ubi:.3f}, Mean: {format_currency(m_ubi)})")
 
-        # Add Vertical Lines for Means (one for each graph)
-        # Average lines removed per user request
-        # ax.axvline(m_pre, color="blue", linestyle="--", alpha=0.8, linewidth=2, zorder=10)
-        # ax.axvline(m_post, color="green", linestyle="--", alpha=0.8, linewidth=1.5, zorder=9)
-        # ax.axvline(m_ubi, color="orange", linestyle="--", alpha=0.8, linewidth=1.5, zorder=9)
+        # --- AX1: Dynamic Distribution Plot ---
+        ax1.clear()
+        sns.kdeplot(w_pre, ax=ax1, color="blue", fill=True, alpha=0.1, label=f"No Tax (Gini: {g_pre:.3f}, Mean: {format_currency(m_pre)})")
+        sns.kdeplot(w_post, ax=ax1, color="green", fill=True, alpha=0.2, label=f"Taxed (Gini: {g_post:.3f}, Mean: {format_currency(m_post)})")
+        sns.kdeplot(w_ubi, ax=ax1, color="orange", fill=True, alpha=0.3, label=f"UBI (Gini: {g_ubi:.3f}, Mean: {format_currency(m_ubi)})")
 
-        
-        # Enhanced Title with GDP Growth Info
         title_text = (
-            f"Wealth Accumulation - Year {year_idx} (Linear Scale)\n"
-            f"Annual GDP Growth:  Pre-Tax: {grow_pre:+.2f}% | Taxed: {grow_post:+.2f}% | UBI: {grow_ubi:+.2f}%\n"
-            f"Scenario Comparison after {year_idx} years of policy | Avg Tax: {avg_tax_rate:.1f}%"
+            f"Wealth Accumulation - Year {year_idx}\n"
+            f"Annual GDP Growth:  Pre: {grow_pre:+.2f}% | Tax: {grow_post:+.2f}% | UBI: {grow_ubi:+.2f}%\n"
+            f"Avg Tax Rate: {avg_tax_rate:.1f}%"
         )
-        ax.set_title(title_text, fontsize=14, pad=15)
-        ax.set_xlabel("Total Wealth ($)")
-        ax.set_ylabel("Density")
-        ax.legend(loc='upper right')
-        
-        ax.set_xlim(min_w, max_w)
-        ax.xaxis.set_major_formatter(FuncFormatter(format_currency))
-        ax.grid(True, alpha=0.3)
-        
+        ax1.set_title(title_text, fontsize=12, pad=10)
+        ax1.set_xlabel("Total Wealth ($)")
+        ax1.set_ylabel("Density")
+        ax1.set_xlim(min_w, max_w)
+        ax1.xaxis.set_major_formatter(FuncFormatter(format_currency))
+        ax1.legend(loc='upper right', fontsize=9)
+        ax1.grid(True, alpha=0.2)
+
+        # --- Update AX2 Indicator ---
+        curr_line.set_xdata([year_idx, year_idx])
+        dot_pre.set_data([year_idx], [g_pre])
+        dot_post.set_data([year_idx], [g_post])
+        dot_ubi.set_data([year_idx], [g_ubi])
+
         fig.canvas.draw_idle()
 
-    # --- Slider ---
-    ax_slider = plt.axes([0.15, 0.08, 0.65, 0.03], facecolor='lightgoldenrodyellow')
-    slider = Slider(
-        ax=ax_slider,
-        label='Year ',
-        valmin=0,
-        valmax=len(sim.history['pre']) - 1,
-        valinit=0,
-        valstep=1
-    )
-    
+    # Controls Setup
+    ax_slider = plt.axes([0.15, 0.05, 0.55, 0.03], facecolor='lightgoldenrodyellow')
+    slider = Slider(ax_slider, 'Year ', 0, sim.n_years, valinit=0, valstep=1)
     slider.on_changed(update_plot)
     
-    # --- Play Button Logic ---
     def animate(frame):
-        # Move slider forward, loop back at end
         val = slider.val + 1
-        if val > slider.valmax:
-            val = 0
+        if val > sim.n_years: val = 0
         slider.set_val(val)
         return val
 
     def toggle_animation(event):
         if state['running']:
-            if state['obj']:
-                state['obj'].event_source.stop()
+            if state['obj']: state['obj'].event_source.stop()
             state['running'] = False
             btn.label.set_text('▶ Play')
         else:
-            # interval=50ms (20 frames per second)
-            state['obj'] = animation.FuncAnimation(fig, animate, interval=50, save_count=100)
+            state['obj'] = animation.FuncAnimation(fig, animate, interval=100, save_count=100)
             state['running'] = True
             btn.label.set_text('⏸ Pause')
         fig.canvas.draw_idle()
 
-    # Add Play Button
-    ax_btn = plt.axes([0.85, 0.07, 0.1, 0.05])
+    ax_btn = plt.axes([0.8, 0.04, 0.1, 0.05])
     btn = Button(ax_btn, '▶ Play')
     btn.on_clicked(toggle_animation)
 
-    # Initial Plot
     update_plot(0)
     plt.show()
-    print("\n[Interactive Mode] Use slider or Play button to view wealth evolution.")
-
